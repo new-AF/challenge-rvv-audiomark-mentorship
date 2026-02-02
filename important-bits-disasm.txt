@@ -1,0 +1,50 @@
+000102ec <q15_axpy_ref>:
+q15_axpy_ref():
+   102ec:	02d05b63          	blez	a3,10322 <q15_axpy_ref+0x36>
+   102f0:	0686                	slli	a3,a3,0x1
+   102f2:	96aa                	add	a3,a3,a0
+   102f4:	68a1                	lui	a7,0x8
+   102f6:	7e61                	lui	t3,0xffff8
+   102f8:	00059783          	lh	a5,0(a1)
+   102fc:	00051303          	lh	t1,0(a0)
+   10300:	fff88813          	addi	a6,a7,-1 # 7fff <exit-0x80b5>
+   10304:	02e787b3          	mul	a5,a5,a4
+   10308:	979a                	add	a5,a5,t1
+   1030a:	0117d563          	bge	a5,a7,10314 <q15_axpy_ref+0x28>
+   1030e:	01c7cb63          	blt	a5,t3,10324 <q15_axpy_ref+0x38>
+   10312:	883e                	mv	a6,a5
+   10314:	01061023          	sh	a6,0(a2)
+   10318:	0509                	addi	a0,a0,2
+   1031a:	0589                	addi	a1,a1,2
+   1031c:	0609                	addi	a2,a2,2
+   1031e:	fcd51de3          	bne	a0,a3,102f8 <q15_axpy_ref+0xc>
+   10322:	8082                	ret
+   10324:	7861                	lui	a6,0xffff8
+   10326:	b7fd                	j	10314 <q15_axpy_ref+0x28>
+
+00010328 <q15_axpy_rvv>:
+q15_axpy_rvv():
+   10328:	00a05073          	csrwi	vxrm,0
+   1032c:	c6a1                	beqz	a3,10374 <q15_axpy_rvv+0x4c>
+   1032e:	4881                	li	a7,0
+   10330:	00189813          	slli	a6,a7,0x1
+   10334:	411687b3          	sub	a5,a3,a7
+   10338:	0c87f7d7          	vsetvli	a5,a5,e16,m1,ta,ma
+   1033c:	01058333          	add	t1,a1,a6
+   10340:	02035107          	vle16.v	v2,(t1)
+   10344:	01050333          	add	t1,a0,a6
+   10348:	02035087          	vle16.v	v1,(t1)
+   1034c:	9832                	add	a6,a6,a2
+   1034e:	98be                	add	a7,a7,a5
+   10350:	c6206257          	vwcvt.x.x.v	v4,v2
+   10354:	c6106157          	vwcvt.x.x.v	v2,v1
+   10358:	0d107057          	vsetvli	zero,zero,e32,m2,ta,ma
+   1035c:	96476257          	vmul.vx	v4,v4,a4
+   10360:	02220157          	vadd.vv	v2,v2,v4
+   10364:	0c807057          	vsetvli	zero,zero,e16,m1,ta,ma
+   10368:	be203157          	vnclip.wi	v2,v2,0
+   1036c:	02085127          	vse16.v	v2,(a6)
+   10370:	fcd8e0e3          	bltu	a7,a3,10330 <q15_axpy_rvv+0x8>
+   10374:	8082                	ret
+
+
