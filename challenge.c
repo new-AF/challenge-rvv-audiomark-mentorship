@@ -47,7 +47,7 @@ void q15_axpy_rvv(const int16_t *a, const int16_t *b,
     // TODO: Enter your solution here
 
     /*
-    Goal, compute forumula:
+    Goal, compute the formula:
 
     y[i] = sat_q15(a[i] + alpha * b[i])
 
@@ -67,7 +67,7 @@ void q15_axpy_rvv(const int16_t *a, const int16_t *b,
     // hardware vector length (VL)
     size_t vectorLength = 0;
 
-    // convet alpha to 32bit because interim vector will hold int32_t elements
+    // convert alpha to 32bit because interim vector will hold int32_t elements
     int32_t scalar = (int32_t)alpha;
 
     // process in batches, depending on the hardware vector length (VL) of fitting int16_t elements.
@@ -94,8 +94,8 @@ void q15_axpy_rvv(const int16_t *a, const int16_t *b,
         vint32m2_t vectorSum = __riscv_vadd_vv_i32m2(vectorA, vectorMultiplied, vectorLength);
 
         // 8. *crucial* narrow the int32_t to int16_t by first saturating or clamping [-32768, 32767]
-        // argument 2 set right shift amount: we do 0.
-        // arfument 3  becomes irrelevant.
+        // argument 2 sets right shift amount: we do 0.
+        // argument 3  becomes irrelevant.
         vint16m1_t vectorY = __riscv_vnclip_wx_i16m1(vectorSum, 0, 0, vectorLength);
 
         // 9. store `vectorY` into array `y`

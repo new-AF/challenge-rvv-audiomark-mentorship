@@ -31,7 +31,7 @@ void q15_axpy_rvv(
 
 ### Scalar vs vectorized definitions
 
-_Scalar_ means we apply a sequence operations on the **single** array element e.g.:
+_Scalar_ means we apply a sequence operations to a **single** array element e.g.:
 
 - `const multiplyResult = alpha * b[i]`
 - `const sumResult = multiplyResult + a[i]`
@@ -42,7 +42,7 @@ A _vectorized_ solution however applies the **same** operation on **multiple** e
 
 It does this by _packing_ multiple elements inside a _hardware vector register_ and applying the _same_ operation on the _entire_ vector e.g.:
 
-- `const multiplyVector = alpha * vectorB[i : i+VL]` where `VL` is `vectorLength` or the number of elements _packable_ in a single hardware vector register.
+- `const multiplyVector = alpha * vectorB[i : i+VL]` where `VL` is `vectorLength` or the number of elements that can be _packed_ in a single hardware vector register.
 - `const sumVector = multiplyVector + vectorA[i : i+VL]`
 - `const clampedAndNarrowedVector = __riscv_vnclip_wx_i16m1(sumVector)`
 - `y[i : i+VL] = clampedAndNarrowedVector`
@@ -83,7 +83,7 @@ void q15_axpy_rvv(const int16_t *a, const int16_t *b,
     // TODO: Enter your solution here
 
     /*
-    Goal, compute forumula:
+    Goal, compute the formula:
 
     y[i] = sat_q15(a[i] + alpha * b[i])
 
@@ -103,7 +103,7 @@ void q15_axpy_rvv(const int16_t *a, const int16_t *b,
     // hardware vector length (VL)
     size_t vectorLength = 0;
 
-    // convet alpha to 32bit because interim vector will hold int32_t elements
+    // convert alpha to 32bit because interim vector will hold int32_t elements
     int32_t scalar = (int32_t)alpha;
 
     // process in batches, depending on the hardware vector length (VL) of fitting int16_t elements.
@@ -130,8 +130,8 @@ void q15_axpy_rvv(const int16_t *a, const int16_t *b,
         vint32m2_t vectorSum = __riscv_vadd_vv_i32m2(vectorA, vectorMultiplied, vectorLength);
 
         // 8. *crucial* narrow the int32_t to int16_t by first saturating or clamping [-32768, 32767]
-        // argument 2 set right shift amount: we do 0.
-        // arfument 3  becomes irrelevant.
+        // argument 2 sets right shift amount: we do 0.
+        // argument 3  becomes irrelevant.
         vint16m1_t vectorY = __riscv_vnclip_wx_i16m1(vectorSum, 0, 0, vectorLength);
 
         // 9. store `vectorY` into array `y`
@@ -146,7 +146,7 @@ void q15_axpy_rvv(const int16_t *a, const int16_t *b,
 
 ![Correctness output screenshot of running the vectorized ELF binary on the QEMU risc-v 32bit emulator](./correctness-output.PNG)
 
-The provided compiled 32bit ELF was run on QEMU as following:
+I ran my solution on QEMU as following:
 
 ```bash
 qemu-riscv32 ./challenge.elf
@@ -158,7 +158,7 @@ qemu-riscv32 ./challenge.elf
 
 `vectorLength` is **dynamic** and depends on the underlying RISC-V CPU. At the start of each batch we call `__riscv_vsetvl_e16m1` to get our `vectorLength`, we always be greedy and request the full remaining array length `(elementCount - elementsProcessed)` to fit inside a vector register.
 
-We than get the _actual_ length of the available vector that will accommodate our elements, which is often less than the full `elementCount`
+We then get the _actual_ length of the available vector that will accommodate our elements, which is often less than the full `elementCount`
 
 `__riscv_vsetvl_e16m1` works as the following pseudo-code:
 
@@ -188,25 +188,29 @@ Next we narrow down the elements from `int32_t` to `int16_t`
 
 - We do this by calling `__riscv_vnclip_wx_i16m1` to first saturate or clip the `int32_t` value into `int16_t` range. The crucial part is the second argument it tells the instruction to `0` right shifts, the 3rd argument then becomes irrelevant.
 
-Finally we store nascent `int16_t` vector into the chunk of the output array `y`
+Finally we store the nascent `int16_t` vector into the corresponding chunk of the output array `y`
 
-- We call `__riscv_vse16_v_i16m1` to specify the address of the `y` chuck and the length of `vectorY`
+- We call `__riscv_vse16_v_i16m1` to specify the address of the `y` chunk and the length of `vectorY`
 
 ## Speedup
 
 > The expected speedup is between **1.6x** for a 32-bit vector register, up to **25.6x** for a 512-bit vector register.
 >
-> The speedup formula is `0.05 x Vector Register Width`
+> The speedup formula is **`0.05 x Vector Register Width`**
 >
-> Because our elements are `int16_t`, the expected speedup is `0.8 x VL` or `0.8 x vectorLength`
+> Because our elements are `int16_t`, the expected speedup is **`0.8 x VL`** or **`0.8 x vectorLength`**
+>
+> _(`vectorLength` is the number of `int16_t` elements that can be packed in a vector register)_
 
 ### Backstory
 
+![Correctness output screenshot of running the vectorized ELF binary on the QEMU risc-v 32bit emulator](./correctness-output.PNG)
+
 I ran the compiled _ELF_ on `qemu-riscv32` and even though the cycle counter shows the RVV solution being slower than the scalar option, this is because `qemu` is not a cycle-accurate emulator and does not emulate the RVV hardware pipeline. It instead transforms the RVV instructions into individual scalar instructions while being functionally correct with the end results and RVV spec.
 
-I tried to compile `gem5` twice in the hope it might have a better RVV performance but my hardware-bugged and weak Intel Gen11 i3 laptop became unresponsive.
+I tried to compile `gem5` twice hoping it might have a better RVV performance but my hardware-bugged and weak Intel Gen11 i3 laptop became unresponsive.
 
-So we are left with having to disassemble binary outputs of both the scalar and vectorized versions to calculate how instruction count per element.
+So we have to disassemble the binary outputs of both the scalar and vectorized versions to calculate the instruction count _per_ element.
 
 ### Scalar solution disassembly analysis
 
@@ -326,7 +330,7 @@ q15_axpy_rvv():
 15. 1036c: vse16.v v2,(a6)             //  y[elementsProcessed : elementsProcessed+vectorLength] = vectorY
 ```
 
-So 1 element costs `15 / vectorLength` instructions in the vectorized solution, as opposed to the `12` in scalar solution.
+So 1 element costs `15 / vectorLength` instructions in the vectorized solution, as opposed to `12` in the scalar solution.
 
 The Speedup = `Scalar instructions per element / Vector instructions per element`
 
@@ -342,40 +346,40 @@ The Speedup = `12 * vectorLength / 15`
 
 #### Concrete calculations:
 
-| vectorLength | Vector Register Width (bits) | Speedup |
-| ------------ | ---------------------------- | ------- |
-| 1            | 16                           | 0.8     |
-| 2            | 32                           | 1.6     |
-| 3            | 48                           | 2.4     |
-| 4            | 64                           | 3.2     |
-| 5            | 80                           | 4       |
-| 6            | 96                           | 4.8     |
-| 7            | 112                          | 5.6     |
-| 8            | 128                          | 6.4     |
-| 9            | 144                          | 7.2     |
-| 10           | 160                          | 8       |
-| 11           | 176                          | 8.8     |
-| 12           | 192                          | 9.6     |
-| 13           | 208                          | 10.4    |
-| 14           | 224                          | 11.2    |
-| 15           | 240                          | 12      |
-| 16           | 256                          | 12.8    |
-| 17           | 272                          | 13.6    |
-| 18           | 288                          | 14.4    |
-| 19           | 304                          | 15.2    |
-| 20           | 320                          | 16      |
-| 21           | 336                          | 16.8    |
-| 22           | 352                          | 17.6    |
-| 23           | 368                          | 18.4    |
-| 24           | 384                          | 19.2    |
-| 25           | 400                          | 20      |
-| 26           | 416                          | 20.8    |
-| 27           | 432                          | 21.6    |
-| 28           | 448                          | 22.4    |
-| 29           | 464                          | 23.2    |
-| 30           | 480                          | 24      |
-| 31           | 496                          | 24.8    |
-| 32           | 512                          | 25.6    |
+| `vectorLength` | Vector Register Width (bits) | Speedup |
+| -------------- | ---------------------------- | ------- |
+| 1              | 16                           | 0.8     |
+| 2              | 32                           | 1.6     |
+| 3              | 48                           | 2.4     |
+| 4              | 64                           | 3.2     |
+| 5              | 80                           | 4       |
+| 6              | 96                           | 4.8     |
+| 7              | 112                          | 5.6     |
+| 8              | 128                          | 6.4     |
+| 9              | 144                          | 7.2     |
+| 10             | 160                          | 8       |
+| 11             | 176                          | 8.8     |
+| 12             | 192                          | 9.6     |
+| 13             | 208                          | 10.4    |
+| 14             | 224                          | 11.2    |
+| 15             | 240                          | 12      |
+| 16             | 256                          | 12.8    |
+| 17             | 272                          | 13.6    |
+| 18             | 288                          | 14.4    |
+| 19             | 304                          | 15.2    |
+| 20             | 320                          | 16      |
+| 21             | 336                          | 16.8    |
+| 22             | 352                          | 17.6    |
+| 23             | 368                          | 18.4    |
+| 24             | 384                          | 19.2    |
+| 25             | 400                          | 20      |
+| 26             | 416                          | 20.8    |
+| 27             | 432                          | 21.6    |
+| 28             | 448                          | 22.4    |
+| 29             | 464                          | 23.2    |
+| 30             | 480                          | 24      |
+| 31             | 496                          | 24.8    |
+| 32             | 512                          | 25.6    |
 
 ![Plot of the speedup Vector Register Width (bits) on x-axis, Speedup on Y-axis](./speedup-1.png)
 
@@ -401,7 +405,7 @@ git clone https://github.com/riscv-collab/riscv-gnu-toolchain
 cd riscv-gnu-toolchain
 ./configure --prefix=/home/YOUR_USERNAME/build-here-riscv --with-arch=rv32gcv --with-abi=ilp32d
 
-# This will take aruond 6.5GB disk space and 6 hours on a laptop
+# This will take around 6.5GB disk space and 6 hours on a laptop
 make
 
 # So you can run `riscv32-unknown-elf-gcc` from anywhere from the terminal
