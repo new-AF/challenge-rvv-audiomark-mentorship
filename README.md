@@ -1,6 +1,7 @@
 # My Solution to the RISC-V AudioMark™ Mentorship Challenge
 
 by Abdullah Fatota
+
 [https://github.com/new-AF/challenge-rvv-audiomark-mentorship](https://github.com/new-AF/challenge-rvv-audiomark-mentorship)
 
 ## The challenge
@@ -96,7 +97,7 @@ void q15_axpy_rvv(const int16_t *a, const int16_t *b,
 
     */
 
-    // baseline software engineering practice: give readable meaningful to variables
+    // baseline software engineering practice: give readable meaningful names to variables
     int elementCount = n;
 
     // hardware vector length (VL)
@@ -128,9 +129,9 @@ void q15_axpy_rvv(const int16_t *a, const int16_t *b,
         // 7. sum (vectorA + vectorMultiply)
         vint32m2_t vectorSum = __riscv_vadd_vv_i32m2(vectorA, vectorMultiplied, vectorLength);
 
-        // 8. *crucial* narrow the int32_t to int16_t by clamping [-32768, 32767]
+        // 8. *crucial* narrow the int32_t to int16_t by first saturating or clamping [-32768, 32767]
         // argument 2 set right shift amount: we do 0.
-        // arfument 3 sets the rounding mode: 0 means trucnate.
+        // arfument 3  becomes irrelevant.
         vint16m1_t vectorY = __riscv_vnclip_wx_i16m1(vectorSum, 0, 0, vectorLength);
 
         // 9. store `vectorY` into array `y`
@@ -143,7 +144,13 @@ void q15_axpy_rvv(const int16_t *a, const int16_t *b,
 
 ### Correctness output
 
-![Correctness output screenshot of running the vectorized ELF binary on the QEMU Simulator](./correctness-output.PNG)
+![Correctness output screenshot of running the vectorized ELF binary on the QEMU risc-v 32bit emulator](./correctness-output.PNG)
+
+The provided compiled 32bit ELF was run on QEMU as following:
+
+```bash
+qemu-riscv32 ./challenge.elf
+```
 
 ### Walkthrough
 
@@ -372,6 +379,54 @@ The Speedup = `12 * vectorLength / 15`
 
 ![Plot of the speedup Vector Register Width (bits) on x-axis, Speedup on Y-axis](./speedup-1.png)
 
-## Building the toolchain
+## Building and running my solution
 
-I opted to build the [latest official GCC toolchain provided by RISC-V International themselves](https://github.com/riscv-collab/riscv-gnu-toolchain)
+I opted to build the [latest official GCC toolchain provided by RISC-V International themselves](https://github.com/riscv-collab/riscv-gnu-toolchain).
+
+It takes around 6.5GB disk space once `make` is done cloning the GitHub repo. Building itself takes around 6 hours on my weak laptop.
+
+Here are the commands I used to build `riscv32-unknown-elf-gcc` on my _Linux Mint 22.3_ installation and successfully compile `./challenge.c` with both the reference and my vectorized solution:
+
+```bash
+cd ~
+mkdir build-here-riscv
+
+# Install the userland QEMU emulator for RISC-V 32
+sudo apt install qemu-user
+
+# Install the dependencies for GCC
+sudo apt-get install autoconf automake autotools-dev curl python3 python3-pip python3-tomli libmpc-dev libmpfr-dev libgmp-dev gawk build-essential bison flex texinfo gperf libtool patchutils bc zlib1g-dev libexpat-dev ninja-build git cmake libglib2.0-dev libslirp-dev libncurses-dev
+
+git clone https://github.com/riscv-collab/riscv-gnu-toolchain
+cd riscv-gnu-toolchain
+./configure --prefix=/home/YOUR_USERNAME/build-here-riscv --with-arch=rv32gcv --with-abi=ilp32d
+
+# This will take aruond 6.5GB disk space and 6 hours on a laptop
+make
+
+# So you can run `riscv32-unknown-elf-gcc` from anywhere from the terminal
+echo 'export PATH=/home/af/build-here-riscv/bin:$PATH' >> ~/.bashrc
+source ~/.bashrc
+
+# Confirm the Vector instructions were installed
+# You should see for example
+#define __riscv_v 1000000
+echo | riscv32-unknown-elf-gcc -march=rv32gcv -mabi=ilp32d -dM -E - | grep __riscv_v
+
+# clone my solution
+cd ~
+git clone https://github.com/new-AF/challenge-rvv-audiomark-mentorship
+cd challenge-rvv-audiomark-mentorship
+
+# compile it
+riscv32-unknown-elf-gcc -O2 -march=rv32gcv -mabi=ilp32d -o challenge.elf challenge.c
+
+# run it
+qemu-riscv32 ./challenge.elf
+```
+
+After running `qemu-riscv32 ./challenge.elf` you should see an output similar to below:
+
+![Correctness output screenshot of running the vectorized ELF binary on the QEMU risc-v 32bit emulator](./correctness-output.PNG)
+
+## References

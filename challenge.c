@@ -61,7 +61,7 @@ void q15_axpy_rvv(const int16_t *a, const int16_t *b,
 
     */
 
-    // baseline software engineering practice: give readable meaningful to variables
+    // baseline software engineering practice: give readable meaningful names to variables
     int elementCount = n;
 
     // hardware vector length (VL)
@@ -93,9 +93,9 @@ void q15_axpy_rvv(const int16_t *a, const int16_t *b,
         // 7. sum (vectorA + vectorMultiply)
         vint32m2_t vectorSum = __riscv_vadd_vv_i32m2(vectorA, vectorMultiplied, vectorLength);
 
-        // 8. *crucial* narrow the int32_t to int16_t by clamping [-32768, 32767]
+        // 8. *crucial* narrow the int32_t to int16_t by first saturating or clamping [-32768, 32767]
         // argument 2 set right shift amount: we do 0.
-        // arfument 3 sets the rounding mode: 0 means trucnate.
+        // arfument 3  becomes irrelevant.
         vint16m1_t vectorY = __riscv_vnclip_wx_i16m1(vectorSum, 0, 0, vectorLength);
 
         // 9. store `vectorY` into array `y`
