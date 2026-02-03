@@ -187,7 +187,11 @@ Finally we store nascent `int16_t` vector into the chunk of the output array `y`
 
 ## Speedup
 
-> The expected speedup is between 5x and 20x on real RVV hardware, depending on `VL` the hardware vector length.
+> The expected speedup is between **1.6x** for a 32-bit vector register, up to **25.6x** for a 512-bit vector register.
+>
+> The speedup formula is `0.05 x Vector Register Width`
+>
+> Because our elements are `int16_t`, the expected speedup is `0.8 x VL` or `0.8 x vectorLength`
 
 ### Backstory
 
@@ -197,7 +201,7 @@ I tried to compile `gem5` twice in the hope it might have a better RVV performan
 
 So we are left with having to disassemble binary outputs of both the scalar and vectorized versions to calculate how instruction count per element.
 
-### Scalar solution analysis
+### Scalar solution disassembly analysis
 
 ```
 000102ec <q15_axpy_ref>:
@@ -258,7 +262,7 @@ Let's ignore the initializations and focus on the `for` loop because that's wher
 
 In case of positive saturation it's 10 instructions per single element, in case of negative saturation it's 13 instructions.
 
-### Vectorized solution analysis
+### Vectorized solution disassembly analysis
 
 ```
 00010328 <q15_axpy_rvv>:
