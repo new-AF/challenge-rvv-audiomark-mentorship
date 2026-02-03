@@ -1,12 +1,10 @@
 # My Solution to the RISC-V AudioMark™ Mentorship Challenge
 
-by Abdullah Fatota
-
-[https://github.com/new-AF/challenge-rvv-audiomark-mentorship](https://github.com/new-AF/challenge-rvv-audiomark-mentorship)
+by Abdullah Fatota [[1]](https://github.com/new-AF/challenge-rvv-audiomark-mentorship)
 
 ## The challenge
 
-Implement a _vectorized_ _C_ function _(`q15_axpy_rvv`)_ that uses the RISC-V Vector instructions (RVV) to compute the scalar formula:
+Implement a _vectorized_ _C_ function _(`q15_axpy_rvv`)_ that uses the RISC-V Vector instructions (RVV) to compute the scalar formula [[2]](https://docs.google.com/document/d/1BLO9GU57161sGLYuBxm7MzcDJSVZIj5OYhqFli7t-Y0/edit?tab=t.0):
 
 ```
 y[i] = sat_q15(a[i] + alpha * b[i])
@@ -206,9 +204,9 @@ Finally we store the nascent `int16_t` vector into the corresponding chunk of th
 
 ![Correctness output screenshot of running the vectorized ELF binary on the QEMU risc-v 32bit emulator](./correctness-output.PNG)
 
-I ran the compiled _ELF_ on `qemu-riscv32` and even though the cycle counter shows the RVV solution being slower than the scalar option, this is because `qemu` is not a cycle-accurate emulator and does not emulate the RVV hardware pipeline. It instead transforms the RVV instructions into individual scalar instructions while being functionally correct with the end results and RVV spec.
+I ran my compiled _ELF_ solution on `qemu-riscv32` and even though the cycle counter shows the RVV solution being slower than the scalar option ( ~657k instructions vs ~227k), this is because `qemu` is not a cycle-accurate emulator and does not emulate the RVV hardware pipeline. It instead transforms the RVV instructions into individual scalar instructions while being functionally correct with the end results and RVV spec. [[3]](https://research.samsung.com/blog/Bringing-RVV-to-Life-Overcoming-Hardware-Gaps-in-RISC-V-Development)
 
-I tried to compile `gem5` twice hoping it might have a better RVV performance but my hardware-bugged and weak Intel Gen11 i3 laptop became unresponsive.
+I tried to compile `gem5` twice hoping it might have a better RVV performance but my hardware-vulnerable [[4]](https://blog.talli.ai/intel-cpu-security-flaw-settlement/) and slow Intel Gen11 i3 laptop became unresponsive.
 
 So we have to disassemble the binary outputs of both the scalar and vectorized versions to calculate the instruction count _per_ element.
 
@@ -305,27 +303,35 @@ q15_axpy_rvv():
 > The CPU runs **15 instructions** per the **entire** `int16_t` vector of size `vectorLength`.
 
 ```
-1. 10330: slli a6,a7,0x1              // byteOffset = elementsProcessed * 2
-2. 10334: sub  a5,a3,a7               // remaining = n - elementsProcessed
+
+
+Set by caller                         // a0 = &a[0]
+                                      // a1 = &b[0]
+                                      // a2 = &y[0]
+                                      // a3 = n = elementCount
+   1032e: li a7,0                     // elementsProcessed = 0
+
+1. 10330: slli a6,a7,0x1              // a6 = elementsProcessed * 2 bytes; holds current batch byte offset for arrays a, b and y;
+2. 10334: sub  a5,a3,a7               // remaining = elementCount - elementsProcessed
 3. 10338: vsetvli a5,a5,e16,m1        // vectorLength = min(remaining, VLMAX)
 
-4. 1033c: add  t1,a1,a6               // get &b[elementsProcessed]
-5. 10340: vle16.v v2,(t1)             // tempVectorA = b[elementsProcessed : elementsProcessed+vectorLength] into  tempVectorA
+4. 1033c: add  t1,a1,a6               // t1 = &b[0] + byte offset; t1 = &b[elementsProcessed]
+5. 10340: vle16.v v2,(t1)             // tempVectorB = b[elementsProcessed : elementsProcessed+vectorLength]
 
-6. 10344: add  t1,a0,a6               // get &a[elementsProcessed]
-7. 10348: vle16.v v1,(t1)             // load a[...] into vectorA
+6. 10344: add  t1,a0,a6               // t1 = &a[elementsProcessed]
+7. 10348: vle16.v v1,(t1)             // tempVectorA = a[elementsProcessed : elementsProcessed+vectorLength]
 
-8. 10350: vwcvt.x.x.v v4,v2           // vectorA = widen tempVectorA from int16 to int32
-9. 10354: vwcvt.x.x.v v2,v1           // vectorB = widen tempVectorA
+8. 10350: vwcvt.x.x.v v4,v2           // vectorB = widen tempVectorB from int16_t to int32_t
+9. 10354: vwcvt.x.x.v v2,v1           // vectorA = widen tempVectorA
 
-10. 10358: vsetvli zero,zero,e32,m2    // set LMUL = 2; switch to int32 vectors
+10. 10358: vsetvli zero,zero,e32,m2    // set LMUL = 2; a logical register now spans 2 hardware registers for int32_t elements. This keeps vectorLength math the same for the current batch.
 
 11. 1035c: vmul.vx v4,v4,a4            // vectorMultiplied = vectorB * alpha
 12. 10360: vadd.vv v2,v2,v4            // vectorSum = vectorMultiplied + vectorA
 
-13. 10364: vsetvli zero,zero,e16,m1    // set LMUL = 1; switch back to int16 vectors
+13. 10364: vsetvli zero,zero,e16,m1    // set LMUL = 1; switch back to int16_t vectors
 
-14. 10368: vnclip.wi v2,v2,0           // vectorY = saturate and narrow vectorSum elements from int32 to int16
+14. 10368: vnclip.wi v2,v2,0           // vectorY = saturate and narrow vectorSum elements from int32_t to int16_t
 
 15. 1036c: vse16.v v2,(a6)             //  y[elementsProcessed : elementsProcessed+vectorLength] = vectorY
 ```
@@ -385,7 +391,7 @@ The Speedup = `12 * vectorLength / 15`
 
 ## Building and running my solution
 
-I opted to build the [latest official GCC toolchain provided by RISC-V International themselves](https://github.com/riscv-collab/riscv-gnu-toolchain).
+I opted to build the latest official GCC toolchain provided by RISC-V International themselves [[5]](https://github.com/riscv-collab/riscv-gnu-toolchain).
 
 It takes around 6.5GB disk space once `make` is done cloning the GitHub repo. Building itself takes around 6 hours on my weak laptop.
 
@@ -434,3 +440,13 @@ After running `qemu-riscv32 ./challenge.elf` you should see an output similar to
 ![Correctness output screenshot of running the vectorized ELF binary on the QEMU risc-v 32bit emulator](./correctness-output.PNG)
 
 ## References
+
+[[1] https://github.com/new-AF/challenge-rvv-audiomark-mentorship](https://github.com/new-AF/challenge-rvv-audiomark-mentorship)
+
+[[2] https://docs.google.com/document/d/1BLO9GU57161sGLYuBxm7MzcDJSVZIj5OYhqFli7t-Y0/edit?tab=t.0](https://docs.google.com/document/d/1BLO9GU57161sGLYuBxm7MzcDJSVZIj5OYhqFli7t-Y0/edit?tab=t.0)
+
+[[3] https://research.samsung.com/blog/Bringing-RVV-to-Life-Overcoming-Hardware-Gaps-in-RISC-V-Development](https://research.samsung.com/blog/Bringing-RVV-to-Life-Overcoming-Hardware-Gaps-in-RISC-V-Development)
+
+[[4] https://blog.talli.ai/intel-cpu-security-flaw-settlement/](https://blog.talli.ai/intel-cpu-security-flaw-settlement/)
+
+[[5] https://github.com/riscv-collab/riscv-gnu-toolchain](https://github.com/riscv-collab/riscv-gnu-toolchain)
