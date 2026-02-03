@@ -287,7 +287,7 @@ q15_axpy_rvv():
    10374:	8082                	ret
 ```
 
-Immediately it's clear true RVV instructions are being e0mitted.
+> The CPU runs **15 instructions** per the **entire** `int16_t` vector of size `vectorLength`.
 
 ```
 1. 10330: slli a6,a7,0x1              // byteOffset = elementsProcessed * 2
@@ -310,10 +310,61 @@ Immediately it's clear true RVV instructions are being e0mitted.
 
 13. 10364: vsetvli zero,zero,e16,m1    // set LMUL = 1; switch back to int16 vectors
 
-14. 10368: vnclip.wi v2,v2,0           // vectorY = saturate and narrow the elements from int32 to int16
+14. 10368: vnclip.wi v2,v2,0           // vectorY = saturate and narrow vectorSum elements from int32 to int16
 
-15. 1036c: vse16.v v2,(a6)             //  y[...]
+15. 1036c: vse16.v v2,(a6)             //  y[elementsProcessed : elementsProcessed+vectorLength] = vectorY
 ```
+
+So 1 element costs `15 / vectorLength` instructions in the vectorized solution, as opposed to the `12` in scalar solution.
+
+The Speedup = `Scalar instructions per element / Vector instructions per element`
+
+The Speedup = `12 / (15 / vectorLength)`
+
+The Speedup = `12 * vectorLength / 15`
+
+> The Speedup = `0.8 * vectorLength`
+>
+> Because `vectorLength` = `vectorWidthInBits / 16`
+>
+> The Speedup in terms of Vector Register Width = `0.05 * vectorWidthInBits`
+
+#### Concrete calculations:
+
+| vectorLength | Vector Register Width (bits) | Speedup |
+| ------------ | ---------------------------- | ------- |
+| 1            | 16                           | 0.8     |
+| 2            | 32                           | 1.6     |
+| 3            | 48                           | 2.4     |
+| 4            | 64                           | 3.2     |
+| 5            | 80                           | 4       |
+| 6            | 96                           | 4.8     |
+| 7            | 112                          | 5.6     |
+| 8            | 128                          | 6.4     |
+| 9            | 144                          | 7.2     |
+| 10           | 160                          | 8       |
+| 11           | 176                          | 8.8     |
+| 12           | 192                          | 9.6     |
+| 13           | 208                          | 10.4    |
+| 14           | 224                          | 11.2    |
+| 15           | 240                          | 12      |
+| 16           | 256                          | 12.8    |
+| 17           | 272                          | 13.6    |
+| 18           | 288                          | 14.4    |
+| 19           | 304                          | 15.2    |
+| 20           | 320                          | 16      |
+| 21           | 336                          | 16.8    |
+| 22           | 352                          | 17.6    |
+| 23           | 368                          | 18.4    |
+| 24           | 384                          | 19.2    |
+| 25           | 400                          | 20      |
+| 26           | 416                          | 20.8    |
+| 27           | 432                          | 21.6    |
+| 28           | 448                          | 22.4    |
+| 29           | 464                          | 23.2    |
+| 30           | 480                          | 24      |
+| 31           | 496                          | 24.8    |
+| 32           | 512                          | 25.6    |
 
 ## Building the toolchain
 
