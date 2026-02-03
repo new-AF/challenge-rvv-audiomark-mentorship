@@ -370,6 +370,8 @@ The Speedup = `12 * vectorLength / 15`
 | 31           | 496                          | 24.8    |
 | 32           | 512                          | 25.6    |
 
+![Plot of the speedup Vector Register Width (bits) on x-axis, Speedup on Y-axis](./speedup-1.png)
+
 ## Building the toolchain
 
 I opted to build the [latest official GCC toolchain provided by RISC-V International themselves](https://github.com/riscv-collab/riscv-gnu-toolchain)
