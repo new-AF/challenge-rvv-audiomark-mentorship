@@ -2,6 +2,35 @@
 
 by Abdullah Fatota [[1]](https://github.com/new-AF/challenge-rvv-audiomark-mentorship)
 
+- [My Solution to the RISC-V AudioMark™ Mentorship Challenge](#my-solution-to-the-risc-v-audiomark-mentorship-challenge)
+  - [My vectorized solution](#my-vectorized-solution)
+    - [Correctness output](#correctness-output)
+    - [Design decisions](#design-decisions)
+      - [Meaningful variable names](#meaningful-variable-names)
+      - [The `for` loop design pattern](#the-for-loop-design-pattern)
+      - [Loading chunks into the vector](#loading-chunks-into-the-vector)
+      - [Widening vector elements from `int16_t` to `int32_t`](#widening-vector-elements-from-int16_t-to-int32_t)
+      - [Performing scalar-vector calculation](#performing-scalar-vector-calculation)
+      - [Performing vector-vector calculation](#performing-vector-vector-calculation)
+      - [Narrowing down the output vector from `int32_t` to `int16_t`](#narrowing-down-the-output-vector-from-int32_t-to-int16_t)
+      - [Storing the nascent `int16_t` vector](#storing-the-nascent-int16_t-vector)
+  - [Measured results and speedup](#measured-results-and-speedup)
+    - [Attempting to install cycle-accurate simulators backstory](#attempting-to-install-cycle-accurate-simulators-backstory)
+    - [Scalar solution disassembly analysis](#scalar-solution-disassembly-analysis)
+    - [Vectorized solution disassembly analysis](#vectorized-solution-disassembly-analysis)
+    - [Concrete calculations](#concrete-calculations)
+    - [Speedup graph](#speedup-graph)
+  - [The challenge itself](#the-challenge-itself)
+    - [Function prototype](#function-prototype)
+    - [Typo in official challenge document](#typo-in-official-challenge-document)
+    - [Typo in the provided boilerplate challenge .c file](#typo-in-the-provided-boilerplate-challenge-c-file)
+    - [Scalar vs vectorized definitions](#scalar-vs-vectorized-definitions)
+    - [Formula notes](#formula-notes)
+  - [Building the toolchain and running my solution](#building-the-toolchain-and-running-my-solution)
+    - [Building the latest official GCC compiler](#building-the-latest-official-gcc-compiler)
+    - [Compiling and running my `solution.c`](#compiling-and-running-my-solutionc)
+  - [References](#references)
+
 ## My vectorized solution
 
 ```c
@@ -76,7 +105,7 @@ void q15_axpy_rvv(const int16_t *a, const int16_t *b,
 
 ### Correctness output
 
-![Correctness output screenshot of running the vectorized ELF binary on the QEMU risc-v 32bit emulator](./correctness-output.PNG)
+![Correctness output screenshot of running the vectorized ELF binary on the QEMU risc-v 32bit emulator](./images/correctness-output.png)
 
 Run commands:
 
@@ -245,83 +274,36 @@ We narrow (or saturate) the output `int32_t` vector `vectorY = vectorA + (alpha 
 > vint16m1_t __riscv_vnclip_wx_i16m1(vint32m2_t src, int32_t shift, uint32_t opc, size_t vectorLength);
 > ```
 >
-> to first saturate or clip the `int32_t` value into `int16_t` range. The crucial part is the second argument it tells the instruction to `0` right shifts, the 3rd argument then becomes irrelevant.
+> - `src` is our target vector
+> - `shift` is the amount of right shift to do, before saturation, we don't need any so we put in `0`.
+> - `opc` is the options code for the rounding mode after doing a right shift, because we set `shift = 0`, this argument is completely ignored.
+>
+> ```c
+> vint16m1_t vectorY = __riscv_vnclip_wx_i16m1(vectorSum, 0, 0, vectorLength);
+> ```
+>
+> Any values outside the `int16_t` range [-32768, 32767] were clamped (or saturated) to the end range values.
 
 #### Storing the nascent `int16_t` vector
 
-into the corresponding chunk of the output array `y`
+We complete the formula calculation by storing the vector results back into output array `y`
 
-- We call `__riscv_vse16_v_i16m1` to specify the address of the `y` chunk and the length of `vectorY`
+> **Rationale:**
+> This is to satisfy the `y[i] = a[i] + (alpha * b[i])` part of the scalar formula, and get the **speedup** by using only one instruction: storing the register back into memory, by calling `__riscv_vse16_v_i16m1`.
+>
+> ```c
+> void __riscv_vse16_v_i16m1(int16_t *base, vint16m1_t value, size_t vectorLength);
+> ```
+>
+> `base` is the memory address in the output array after having stored `elementsProcessed` elements.
+>
+> ```c
+> __riscv_vse16_v_i16m1(&y[elementsProcessed], vectorY, vectorLength);
+> ```
 
-## The challenge
+By storing `vectorY` into output array `y` we have completed the current batch, and simultaneously processed `vectorLength` worth of elements (e.g.32, 64, 128, etc. depending on the RISC-V CPU) using only a **handful** of instructions which leads to a significant speedup as I will demonstrate later.
 
-Implement a _vectorized_ _C_ function _(`q15_axpy_rvv`)_ that uses the RISC-V Vector instructions (RVV) to compute the scalar formula [[2]](https://docs.google.com/document/d/1BLO9GU57161sGLYuBxm7MzcDJSVZIj5OYhqFli7t-Y0/edit?tab=t.0):
-
-```
-
-y[i] = sat_q15(a[i] + alpha \* b[i])
-
-```
-
-### Function prototype
-
-```c
-void q15_axpy_rvv(
-    const int16_t *a,
-    const int16_t *b,
-    int16_t *y,
-    int n,
-    int16_t alpha
-)
-```
-
-- `a` and `b` are input arrays, of `int16_t` elements.
-- `y` is the output array, of `int16_t` elements.
-- `n` is the length of `a`, `b` and `y`.
-- `alpha` is a singular (scalar) value.
-
-### Scalar vs vectorized definitions
-
-_Scalar_ means we apply a sequence operations to a **single** array element e.g.:
-
-- `const multiplyResult = alpha * b[i]`
-- `const sumResult = multiplyResult + a[i]`
-- `const clampedResult = sat_q15_scalar(result)`
-- `y[i] = clampedResult`
-
-A _vectorized_ solution however applies the **same** operation on **multiple** elements **simultaneously**.
-
-It does this by _packing_ multiple elements inside a _hardware vector register_ and applying the _same_ operation on the _entire_ vector e.g.:
-
-- `const multiplyVector = alpha * vectorB[i : i+VL]` where `VL` is `vectorLength` or the number of elements that can be _packed_ in a single hardware vector register.
-- `const sumVector = multiplyVector + vectorA[i : i+VL]`
-- `const clampedAndNarrowedVector = __riscv_vnclip_wx_i16m1(sumVector)`
-- `y[i : i+VL] = clampedAndNarrowedVector`
-
-### Formula notes
-
-```
-y[i] = sat_q15(a[i] + alpha * b[i])
-```
-
-- Interim element calculations will be of type `int32_t` (doesn't matter if _scalar_ or _vectorized_).
-- This is because `a[i] + alpha * b[i]` will in most cases exceed the `int16_t` range `[-32768, 32767]` and overflow to the wrong value.
-- `sat_q15` clamps the `int32_t` result back to `int16_t`.
-
-> _The vectorized solution should **not** implement `sat_q15` because the proper RVV instructions will do that internally. The reference scalar version is provided here purely for educational purposes:_
-
-```c
-int16_t sat_q15(int32_t arrayElement)
-{
-    if (arrayElement > 32767)
-        return 32767;
-    if (arrayElement < -32768)
-        return -32768;
-    return (int16_t)arrayElement;
-}
-```
-
-## Speedup
+## Measured results and speedup
 
 > The expected speedup is between **1.6x** for a 32-bit vector register, up to **25.6x** for a 512-bit vector register.
 >
@@ -331,9 +313,9 @@ int16_t sat_q15(int32_t arrayElement)
 >
 > _(`vectorLength` is the number of `int16_t` elements that can be packed in a vector register)_
 
-### Backstory
+### Attempting to install cycle-accurate simulators backstory
 
-![Correctness output screenshot of running the vectorized ELF binary on the QEMU risc-v 32bit emulator](./correctness-output.PNG)
+![Correctness output screenshot of running the vectorized ELF binary on the QEMU risc-v 32bit emulator](./images/correctness-output.png)
 
 I ran my compiled _ELF_ solution on `qemu-riscv32` and even though the cycle counter shows the RVV solution being slower than the scalar option ( ~657k instructions vs ~227k), this is because `qemu` is not a cycle-accurate emulator and does not emulate the RVV hardware pipeline. It instead transforms the RVV instructions into individual scalar instructions while being functionally correct with the end results and RVV spec. [[3]](https://research.samsung.com/blog/Bringing-RVV-to-Life-Overcoming-Hardware-Gaps-in-RISC-V-Development)
 
@@ -467,7 +449,7 @@ Set by caller                         // a0 = &a[0]
 15. 1036c: vse16.v v2,(a6)             //  y[elementsProcessed : elementsProcessed+vectorLength] = vectorY
 ```
 
-So 1 element costs `15 / vectorLength` instructions in the vectorized solution, as opposed to `12` in the scalar solution.
+> So 1 element costs `15 / vectorLength` instructions in the vectorized solution, as opposed to `12` in the scalar solution.
 
 The Speedup = `Scalar instructions per element / Vector instructions per element`
 
@@ -481,7 +463,7 @@ The Speedup = `12 * vectorLength / 15`
 >
 > The Speedup in terms of Vector Register Width = `0.05 * vectorWidthInBits`
 
-#### Concrete calculations:
+### Concrete calculations
 
 | `vectorLength` | Vector Register Width (bits) | Speedup |
 | -------------- | ---------------------------- | ------- |
@@ -518,9 +500,159 @@ The Speedup = `12 * vectorLength / 15`
 | 31             | 496                          | 24.8    |
 | 32             | 512                          | 25.6    |
 
-![Plot of the speedup Vector Register Width (bits) on x-axis, Speedup on Y-axis](./speedup-1.png)
+### Speedup graph
 
-## Building and running my solution
+![Plot of the speedup Vector Register Width (bits) on x-axis, Speedup on Y-axis](./images/speedup-1.png)
+
+## The challenge itself
+
+Implement a _vectorized_ _C_ function _(`q15_axpy_rvv`)_ that uses the RISC-V Vector instructions (RVV) to compute the scalar formula [[2]](https://docs.google.com/document/d/1BLO9GU57161sGLYuBxm7MzcDJSVZIj5OYhqFli7t-Y0/edit?tab=t.0):
+
+```
+
+y[i] = sat_q15(a[i] + alpha * b[i])
+
+```
+
+### Function prototype
+
+```c
+void q15_axpy_rvv(
+    const int16_t *a,
+    const int16_t *b,
+    int16_t *y,
+    int n,
+    int16_t alpha
+)
+```
+
+- `a` and `b` are input arrays, of `int16_t` elements.
+- `y` is the output array, of `int16_t` elements.
+- `n` is the length of `a`, `b` and `y`.
+- `alpha` is a singular (scalar) value.
+
+### Typo in official challenge document
+
+In the challenge document [[2]](https://docs.google.com/document/d/1BLO9GU57161sGLYuBxm7MzcDJSVZIj5OYhqFli7t-Y0/edit?tab=t.0) the formula has a typo, the additional y[i] at the end
+
+![Screenshot of typoed AXPY formula in challenge document](./images/formula-typo.png)
+
+> **Rationale:**
+> The formula AXPY is standard in linear algebra and signal processing applications [[6]](https://www.cs.utexas.edu/~flame/laff/pfhp/week1-the-axpy-operation.html) and is the following:
+>
+> y = ax + y [[6]](https://www.cs.utexas.edu/~flame/laff/pfhp/week1-the-axpy-operation.html)
+>
+> In addition the reference scalar solution `q15_axpy_ref` clearly matches the standard (ax + y) definition
+>
+> ```c
+> void q15_axpy_ref(const int16_t *a, const int16_t *b, int16_t *y, int n, int16_t alpha)
+> {
+>     for (int i = 0; i < n; ++i)
+>     {
+>         int32_t acc = (int32_t)a[i] + (int32_t)alpha * (int32_t)b[i];
+>         y[i] = sat_q15_scalar(acc);
+>     }
+> }
+> ```
+
+### Typo in the provided boilerplate challenge .c file
+
+The challenge boilerplate .c file [[7]](https://godbolt.org/z/h483Erh7G) has a typo in the preprocessor conditional directive, specifically **line 36** and condition **`(__riscv_v_intrinsic < 1000000)`**
+
+If left unchanged, it will **not** run your RVV solution function (`q15_axpy_ref`) and will always run the reference scalar solution instead (`q15_axpy_ref`).
+
+```c
+void q15_axpy_rvv(const int16_t *a, const int16_t *b,
+                  int16_t *y, int n, int16_t alpha)
+{
+// line 36 `__riscv_v_intrinsic`
+#if !defined(__riscv) || !defined(__riscv_vector) || (__riscv_v_intrinsic < 1000000)
+    // Fallback (keeps correctness off-target)
+    q15_axpy_ref(a, b, y, n, alpha);
+#else
+    // TODO: Enter your solution here
+#endif
+}
+```
+
+> **Rationale:**
+> By building the latest `riscv32-unknown-elf-gcc` GCC compiler for `rv32gcv` I can confirm (see screenshot below) that `__riscv_v_intrinsic` does not go high to `1000000` that is the major version is not v1.0.
+>
+> At the moment it is 0.12 or **`12000`** [[8]](https://gcc.gnu.org/pipermail/gcc-cvs/2023-March/380142.html)
+>
+> What **does** go to v1.0 is the RVV specification macro itself **`__riscv_v`** so maybe the author was aiming for it instead.
+
+Running the command to inspect RVV support on `riscv32-unknown-elf-gcc` confirms my findings:
+
+```bash
+echo | riscv32-unknown-elf-gcc -march=rv32gcv -mabi=ilp32d -dM -E - | grep __riscv_v
+```
+
+![Screenshot of riscv32-unknown-elf-gcc listing RVV support macro versions with __riscv_v_intrinsic circled](./images/gcc-rvv-support.png)
+
+> **The fix:**
+>
+> Change **line 36** to either:
+>
+> - (Recommended) from `(__riscv_v_intrinsic < 1000000)` to **`(__riscv_v_intrinsic < 12000)`**
+> - Or do what I initially did, which is not the best solution after researching the topic, but it works, and at the time seemed sensible, and changing it now would be impractical because it could change my compiled solution `challenge.elf` whose disassembly I analyze below.
+>
+>     Introduce a new macro (a better name would be `RVV_INTRINSIC_SPEC_THRESHOLD` but I concluded that later):
+>
+> ```c
+> #define RVV_SPEC_THRESHOLD 1
+> ```
+>
+> And change **line 36**, the preprocessor condition to:
+>
+> ```c
+> #if !defined(__riscv) || !defined(__riscv_vector) || (__riscv_v_intrinsic < RVV_SPEC_THRESHOLD)
+> ```
+
+### Scalar vs vectorized definitions
+
+_Scalar_ means we apply a sequence operations to a **single** array element e.g.:
+
+- `const multiplyResult = alpha * b[i]`
+- `const sumResult = multiplyResult + a[i]`
+- `const clampedResult = sat_q15_scalar(result)`
+- `y[i] = clampedResult`
+
+A _vectorized_ solution however applies the **same** operation on **multiple** elements **simultaneously**.
+
+It does this by _packing_ multiple elements inside a _hardware vector register_ and applying the _same_ operation on the _entire_ vector e.g.:
+
+- `const multiplyVector = alpha * vectorB[i : i+VL]` where `VL` is `vectorLength` or the number of elements that can be _packed_ in a single hardware vector register.
+- `const sumVector = multiplyVector + vectorA[i : i+VL]`
+- `const clampedAndNarrowedVector = __riscv_vnclip_wx_i16m1(sumVector)`
+- `y[i : i+VL] = clampedAndNarrowedVector`
+
+### Formula notes
+
+```
+y[i] = sat_q15(a[i] + alpha * b[i])
+```
+
+- Interim element calculations will be of type `int32_t` (doesn't matter if _scalar_ or _vectorized_).
+- This is because `a[i] + alpha * b[i]` will in most cases exceed the `int16_t` range `[-32768, 32767]` and overflow to the wrong value.
+- `sat_q15` clamps the `int32_t` result back to `int16_t`.
+
+> _The vectorized solution should **not** implement `sat_q15` because the proper RVV instructions will do that internally. The reference scalar version is provided here purely for educational purposes:_
+
+```c
+int16_t sat_q15(int32_t arrayElement)
+{
+    if (arrayElement > 32767)
+        return 32767;
+    if (arrayElement < -32768)
+        return -32768;
+    return (int16_t)arrayElement;
+}
+```
+
+## Building the toolchain and running my solution
+
+### Building the latest official GCC compiler
 
 I opted to build the latest official GCC toolchain provided by RISC-V International themselves [[5]](https://github.com/riscv-collab/riscv-gnu-toolchain).
 
@@ -553,7 +685,15 @@ source ~/.bashrc
 # You should see for example
 #define __riscv_v 1000000
 echo | riscv32-unknown-elf-gcc -march=rv32gcv -mabi=ilp32d -dM -E - | grep __riscv_v
+```
 
+Now you should have a GCC compiler that supports the RVV v1.0 specification:
+
+![Screenshot of riscv32-unknown-elf-gcc listing RVV support macro versions](./images/gcc-rvv-support-0.png)
+
+### Compiling and running my `solution.c`
+
+```bash
 # clone my solution
 cd ~
 git clone https://github.com/new-AF/challenge-rvv-audiomark-mentorship
@@ -566,9 +706,15 @@ riscv32-unknown-elf-gcc -O2 -march=rv32gcv -mabi=ilp32d -o challenge.elf challen
 qemu-riscv32 ./challenge.elf
 ```
 
-After running `qemu-riscv32 ./challenge.elf` you should see an output similar to below:
+Now run the QEMU RISC-V emulator:
 
-![Correctness output screenshot of running the vectorized ELF binary on the QEMU risc-v 32bit emulator](./correctness-output.PNG)
+```bash
+qemu-riscv32 ./challenge.elf
+```
+
+You should see an output similar to below:
+
+![Correctness output screenshot of running the vectorized ELF binary on the QEMU risc-v 32bit emulator](./images/correctness-output.png)
 
 ## References
 
@@ -581,3 +727,9 @@ After running `qemu-riscv32 ./challenge.elf` you should see an output similar to
 [[4] https://blog.talli.ai/intel-cpu-security-flaw-settlement/](https://blog.talli.ai/intel-cpu-security-flaw-settlement/)
 
 [[5] https://github.com/riscv-collab/riscv-gnu-toolchain](https://github.com/riscv-collab/riscv-gnu-toolchain)
+
+[[6] https://www.cs.utexas.edu/~flame/laff/pfhp/week1-the-axpy-operation.html](https://www.cs.utexas.edu/~flame/laff/pfhp/week1-the-axpy-operation.html)
+
+[[7] https://godbolt.org/z/h483Erh7G](https://godbolt.org/z/h483Erh7G)
+
+[[8] https://gcc.gnu.org/pipermail/gcc-cvs/2023-March/380142.html](https://gcc.gnu.org/pipermail/gcc-cvs/2023-March/380142.html)
