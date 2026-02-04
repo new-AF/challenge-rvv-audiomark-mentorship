@@ -110,7 +110,7 @@ void q15_axpy_rvv(const int16_t *a, const int16_t *b,
 Run commands:
 
 ```bash
-qemu-riscv32 ./challenge.elf
+qemu-riscv32 ./solution.elf
 ```
 
 ### Design decisions
@@ -542,6 +542,8 @@ In the challenge document [[2]](https://docs.google.com/document/d/1BLO9GU57161s
 >
 > y = ax + y [[6]](https://www.cs.utexas.edu/~flame/laff/pfhp/week1-the-axpy-operation.html)
 >
+> ![Screenshot of AXPY formula](./images/axpy-formula.png) [[6]](https://www.cs.utexas.edu/~flame/laff/pfhp/week1-the-axpy-operation.html)
+>
 > In addition the reference scalar solution `q15_axpy_ref` clearly matches the standard (ax + y) definition
 >
 > ```c
@@ -595,7 +597,7 @@ echo | riscv32-unknown-elf-gcc -march=rv32gcv -mabi=ilp32d -dM -E - | grep __ris
 > Change **line 36** to either:
 >
 > - (Recommended) from `(__riscv_v_intrinsic < 1000000)` to **`(__riscv_v_intrinsic < 12000)`**
-> - Or do what I initially did, which is not the best solution after researching the topic, but it works, and at the time seemed sensible, and changing it now would be impractical because it could change my compiled solution `challenge.elf` whose disassembly I analyze below.
+> - Or do what I initially did, which is not the best solution after researching the topic, but it works, and at the time seemed sensible, and changing it now would be impractical because it could change my compiled solution `solution.elf` whose disassembly I analyze below.
 >
 >     Introduce a new macro (a better name would be `RVV_INTRINSIC_SPEC_THRESHOLD` but I concluded that later):
 >
@@ -658,7 +660,7 @@ I opted to build the latest official GCC toolchain provided by RISC-V Internatio
 
 It takes around 6.5GB disk space once `make` is done cloning the GitHub repo. Building itself takes around 6 hours on my weak laptop.
 
-Here are the commands I used to build `riscv32-unknown-elf-gcc` on my _Linux Mint 22.3_ installation and successfully compile `./challenge.c` with both the reference and my vectorized solution:
+Here are the commands I used to build `riscv32-unknown-elf-gcc` on my _Linux Mint 22.3_ installation and successfully compile `./solution.c` with both the reference and my vectorized solution:
 
 ```bash
 cd ~
@@ -700,16 +702,16 @@ git clone https://github.com/new-AF/challenge-rvv-audiomark-mentorship
 cd challenge-rvv-audiomark-mentorship
 
 # compile it
-riscv32-unknown-elf-gcc -O2 -march=rv32gcv -mabi=ilp32d -o challenge.elf challenge.c
+riscv32-unknown-elf-gcc -O2 -march=rv32gcv -mabi=ilp32d -o solution.elf solution.c
 
 # run it
-qemu-riscv32 ./challenge.elf
+qemu-riscv32 ./solution.elf
 ```
 
 Now run the QEMU RISC-V emulator:
 
 ```bash
-qemu-riscv32 ./challenge.elf
+qemu-riscv32 ./solution.elf
 ```
 
 You should see an output similar to below:
