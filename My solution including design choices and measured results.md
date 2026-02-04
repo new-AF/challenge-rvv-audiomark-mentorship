@@ -208,7 +208,7 @@ During each batch we load `vectorLength` chunks of arrays `a` and `b` into a vec
 
 #### Widening vector elements from `int16_t` to `int32_t`
 
-> **Rationale:** Because subsequent computations, namely the scalar multiplication and addition preparation for subsequent calculations can easily exceed the `int16_t` range and crucially overflow to the wrong values, we use a wider type with bigger range.
+> **Rationale:** This is because subsequent computations, namely the scalar multiplication and addition can easily exceed the `int16_t` range and crucially overflow to the wrong values, therefore we use a wider type with bigger range.
 >
 > The intrinsic to do that is:
 >
