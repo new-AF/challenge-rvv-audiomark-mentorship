@@ -266,7 +266,7 @@ We perform the vector-vector calculations `vectorA + (alpha * vectorB)` by calli
 We narrow (or saturate) the output `int32_t` vector `vectorY = vectorA + (alpha * vectorB)` into a vector of `int16_t` elements.
 
 > **Rationale:**
-> This is because our AXPY formula requires `int16_t` output as its inputs are `int16_t` due to various reasons (hardware constraints, it's sufficient for it's audio signal purposes)
+> This is because our AXPY formula requires `int16_t` output as its inputs are `int16_t` due to various reasons (hardware constraints, it's sufficient for its audio signal purposes)
 >
 > We do this by calling `__riscv_vnclip_wx_i16m1` which has the prototype:
 >
