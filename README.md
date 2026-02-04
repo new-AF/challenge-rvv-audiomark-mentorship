@@ -2,72 +2,6 @@
 
 by Abdullah Fatota [[1]](https://github.com/new-AF/challenge-rvv-audiomark-mentorship)
 
-## The challenge
-
-Implement a _vectorized_ _C_ function _(`q15_axpy_rvv`)_ that uses the RISC-V Vector instructions (RVV) to compute the scalar formula [[2]](https://docs.google.com/document/d/1BLO9GU57161sGLYuBxm7MzcDJSVZIj5OYhqFli7t-Y0/edit?tab=t.0):
-
-```
-y[i] = sat_q15(a[i] + alpha * b[i])
-```
-
-### Function prototype
-
-```c
-void q15_axpy_rvv(
-    const int16_t *a,
-    const int16_t *b,
-    int16_t *y,
-    int n,
-    int16_t alpha
-)
-```
-
-- `a` and `b` are input arrays, of `int16_t` elements.
-- `y` is the output array, of `int16_t` elements.
-- `n` is the length of `a`, `b` and `y`.
-- `alpha` is a singular (scalar) value.
-
-### Scalar vs vectorized definitions
-
-_Scalar_ means we apply a sequence operations to a **single** array element e.g.:
-
-- `const multiplyResult = alpha * b[i]`
-- `const sumResult = multiplyResult + a[i]`
-- `const clampedResult = sat_q15_scalar(result)`
-- `y[i] = clampedResult`
-
-A _vectorized_ solution however applies the **same** operation on **multiple** elements **simultaneously**.
-
-It does this by _packing_ multiple elements inside a _hardware vector register_ and applying the _same_ operation on the _entire_ vector e.g.:
-
-- `const multiplyVector = alpha * vectorB[i : i+VL]` where `VL` is `vectorLength` or the number of elements that can be _packed_ in a single hardware vector register.
-- `const sumVector = multiplyVector + vectorA[i : i+VL]`
-- `const clampedAndNarrowedVector = __riscv_vnclip_wx_i16m1(sumVector)`
-- `y[i : i+VL] = clampedAndNarrowedVector`
-
-### Formula notes
-
-```
-y[i] = sat_q15(a[i] + alpha * b[i])
-```
-
-- Interim element calculations will be of type `int32_t` (doesn't matter if _scalar_ or _vectorized_).
-- This is because `a[i] + alpha * b[i]` will in most cases exceed the `int16_t` range `[-32768, 32767]` and overflow to the wrong value.
-- `sat_q15` clamps the `int32_t` result back to `int16_t`.
-
-> _The vectorized solution should **not** implement `sat_q15` because the proper RVV instructions will do that internally. The reference scalar version is provided here purely for educational purposes:_
-
-```c
-int16_t sat_q15(int32_t arrayElement)
-{
-    if (arrayElement > 32767)
-        return 32767;
-    if (arrayElement < -32768)
-        return -32768;
-    return (int16_t)arrayElement;
-}
-```
-
 ## My vectorized solution
 
 ```c
@@ -144,51 +78,248 @@ void q15_axpy_rvv(const int16_t *a, const int16_t *b,
 
 ![Correctness output screenshot of running the vectorized ELF binary on the QEMU risc-v 32bit emulator](./correctness-output.PNG)
 
-I ran my solution on QEMU as following:
+Run commands:
 
 ```bash
 qemu-riscv32 ./challenge.elf
 ```
 
-### Walkthrough
+### Design decisions
 
-> The crux of the solution is: We process the arrays (`a`, `b` and `y`) in **batches** of `vectorLength` size.
+> The crux of my solution is to process the arrays `a, b, y`, using a **single** `for` loop, and in **batches** or increments of the dynamic **`vectorLength` (VL)**.
+>
+> `vectorLength` can change during each iteration, and is the count of elements to be processed by the current vector.
 
-`vectorLength` is **dynamic** and depends on the underlying RISC-V CPU. At the start of each batch we call `__riscv_vsetvl_e16m1` to get our `vectorLength`, we always be greedy and request the full remaining array length `(elementCount - elementsProcessed)` to fit inside a vector register.
+**Rationale:**
 
-We then get the _actual_ length of the available vector that will accommodate our elements, which is often less than the full `elementCount`
+1. A **single** `for` loop makes the solution straightforward, easier to reason about and crucially **maintain**.
 
-`__riscv_vsetvl_e16m1` works as the following pseudo-code:
+    Because the alternative is to have a main `for` loop for the core logic, and a cleanup code for the edge cases for the remaining elements, which would be make the whole solution _bug-prone_ and _poorly-scalable_.
+
+2. Because `vectorLength` is **dynamic** and responsive to both the underlying width of the vector registers of the RISC-V CPU, and the remaining elements in each batch, it makes my solution fully **vector-length agnostic (VLA)**.
+
+3. Processing in batches or chunks allows us to **subset** the array in a straightforward manner and load them into vectors for processing by RVV.
+
+#### Meaningful variable names
+
+I used clear and descriptive variable names, instead of the ambiguous `n`, `i` and `vl` I used `elementCount`, `elementsProcessed` and `vectorLength`
+
+> **Rationale:** It improves the readability of the code, makes it easier to reason about and crucially maintain.
+
+I use the camelCase naming convention common in the TypeScript/JavaScript/Java world.
+
+> **Rationale:** Personal preference.
+
+#### The `for` loop design pattern
+
+Because `vectorLength` (VL) can change during each iteration, I used the following design pattern to loop over the all arrays (`a`, `b` and `y`) using the dynamic `vectorLength` increment:
 
 ```c
-size_t __riscv_vsetvl_e16m1(requestedVectorLength) {
-    return min(requestedVectorLength, VLMAX)
+#include <riscv_vector.h> // __riscv_vsetvl_e16m1 definition
+
+// ...
+
+int elementCount = n;
+
+// current vector length (VL)
+size_t vectorLength = 0;
+
+// process in batches, depending on `vectorLength` of fitting int16_t elements.
+for (
+    size_t elementsProcessed = 0;
+    elementsProcessed < elementCount;
+    elementsProcessed += vectorLength
+    )
+{
+
+    // get VL
+    vectorLength = __riscv_vsetvl_e16m1(elementCount - elementsProcessed);
+
+    // rest of logic...
 }
 ```
 
-If our input arrays are `4096` elements wide, and `vectorLength` remains consistent at `10` for whatever reason, then we do `409` batches where we process `10` elements, and _one_ final run where we process the remaining `6` elements.
+> **Rationale**:
+>
+> 1. Using `for` groups all the looping constructs in one accessible place.
+> 2. Calling `__riscv_vsetvl_e16m1(elementCount - elementsProcessed)` returns `vectorLength` as the dynamic current batch vector length that will fit the maximum number of the remaining `int16_t` elements.
+>
+> For example: if our arrays are 4096 elements wide, and `vectorLength` is 10 for some uncommon architectural reason, then we do 409 batches and process 10 elements, and one final batch to process the remaining 6 elements, all in the single `for` loop with uniform code logic.
+>
+> `__riscv_vsetvl_e16m1` is defined as the following pseudo-code:
+>
+> ```c
+> size_t __riscv_vsetvl_e16m1(size_t requestedVectorLength) {
+>     return MIN(requestedVectorLength, VLMAX);
+> }
+> ```
+>
+> `VLMAX` is the hardware-defined vector register length for fitting `int16_t` elements.
+>
+> I could directly use `VLMAX` by calling `__riscv_vsetvlmax_e16m1()` but I would be duplicating brittle code by having 2 `for` loops: one for the fixed-iteration, and another "edge-case" to process the remaining elements that aren't a multiple of `VLMAX`
+>
+> Or I would reinvent the wheel by implementing `__riscv_vsetvl_e16m1` during each iteration as `vectorLength = MIN(elementCount - elementsProcessed, VLMAX)` so why not avoid that error-prone process and use the standard built-in intrinsic instead.
 
-`__riscv_vsetvl_e16m1` ensures we only need a _single_ `for` loop, making our implementation fully **vector-length agnostic**.
+#### Loading chunks into the vector
 
-During each batch we do the same for arrays `a` and `b`:
+During each batch we load `vectorLength` chunks of arrays `a` and `b` into a vector.
 
-- Load `vectorLength` chunk of the array into a vector, by calling `__riscv_vle16_v_i16m1`.
+> **Rationale:** To prepare the array elements for vector processing, we first have to load them into a vector register, and we call:
+>
+> ```c
+> vint16m1_t __riscv_vle16_v_i16m1(const int16_t *base, size_t vectorLength);
+> ```
+>
+> `base` is our location in the array (e.g. `a`) after having processed `elementsProcessed` elements.
+>
+> ```c
+> vint16m1_t tempVectorA = __riscv_vle16_v_i16m1(&a[elementsProcessed], vectorLength);
+> vint16m1_t tempVectorB = __riscv_vle16_v_i16m1(&b[elementsProcessed], vectorLength);
+> ```
 
-- Widen `tempVectorA` elements to `int32_t` in preparation for subsequent calculations. We increase the element width but keep the same `vectorLength`. This is done by calling `__riscv_vwcvt_x_x_v_i32m2` which increases our `LMUL` from `1` to `2`.
+#### Widening vector elements from `int16_t` to `int32_t`
 
-We perform the formula-part calculations:
+> **Rationale:** Because subsequent computations, namely the scalar multiplication and addition preparation for subsequent calculations can easily exceed the `int16_t` range and crucially overflow to the wrong values, we use a wider type with bigger range.
+>
+> The intrinsic to do that is:
+>
+> ```c
+> vint32m2_t __riscv_vwcvt_x_x_v_i32m2(vint16m1_t src, size_t vectorLength);
+> ```
+>
+> As widening the elements from `int16_t` to `int32_t` **halves** the number of elements that can be packed inside the same hardware register, this halves `vectorLength` (VL) too.
+>
+> In order to retain the **same** `vectorLength` and **widen** the elements we set **`LMUL = 2`** or the Logical Multiplier.
+>
+> Why do I need to retain the same `vectorLength`? why I couldn't allocate a shorter `int32_t` vector?
+>
+> Because it would complicate the code and make it error-prone, adding an inner `for` loop and tracking 2 different `vectorLength`s: one for the `int16_t` and the other for `int32_t` elements.
+>
+> `LMUL = 2` combines 2 hardware registers with double the bits, to act as 1 logical register, thereby keeping `vectorLength` the same, but holding the now widened `int32_t` elements.
+>
+> ```c
+> vint32m2_t vectorA = __riscv_vwcvt_x_x_v_i32m2(tempVectorA, vectorLength);
+> vint32m2_t vectorB = __riscv_vwcvt_x_x_v_i32m2(tempVectorB, vectorLength);
+> ```
 
-- Scalar-vector calculations `alpha * vectorB` by calling `__riscv_vmul_vx_i32m2`
+#### Performing scalar-vector calculation
 
-- Vector-vector calculations `scaledVectorB + vectorA` by calling `__riscv_vadd_vv_i32m2`
+We perform the scalar-vector calculation `alpha * vectorB` by calling `__riscv_vmul_vx_i32m2`
 
-Next we narrow down the elements from `int32_t` to `int16_t`
+> **Rationale:**
+> This is to satisfy the `alpha * b[i]` part of the scalar formula, and get the **speedup** by using only one instruction (multiply with scalar `alpha`) on the entire vector of elements.
+>
+> ```c
+> vint32m2_t __riscv_vmul_vx_i32m2(vint32m2_t src_vector, int32_t scalar, size_t vectorLength);
+> ```
+>
+> ```c
+> vint32m2_t vectorMultiplied = __riscv_vmul_vx_i32m2(vectorB, scalar, vectorLength);
+> ```
 
-- We do this by calling `__riscv_vnclip_wx_i16m1` to first saturate or clip the `int32_t` value into `int16_t` range. The crucial part is the second argument it tells the instruction to `0` right shifts, the 3rd argument then becomes irrelevant.
+#### Performing vector-vector calculation
 
-Finally we store the nascent `int16_t` vector into the corresponding chunk of the output array `y`
+We perform the vector-vector calculations `vectorA + (alpha * vectorB)` by calling `__riscv_vadd_vv_i32m2`
+
+> **Rationale:**
+> This is to satisfy the `a[i] + (alpha * b[i])` part of the scalar formula, and get the **speedup** by using only one instruction: adding 2 vectors element-wise.
+>
+> ```c
+> vint32m2_t __riscv_vadd_vv_i32m2(vint32m2_t vectorA, vint32m2_t vectorB, size_t vectorLength);
+> ```
+>
+> ```c
+> vint32m2_t vectorSum = __riscv_vadd_vv_i32m2(vectorA, vectorMultiplied, vectorLength);
+> ```
+
+#### Narrowing down the output vector from `int32_t` to `int16_t`
+
+We narrow (or saturate) the output `int32_t` vector `vectorY = vectorA + (alpha * vectorB)` into a vector of `int16_t` elements.
+
+> **Rationale:**
+> This is because our AXPY formula requires `int16_t` output as its inputs are `int16_t` due to various reasons (hardware constraints, it's sufficient for it's audio signal purposes)
+>
+> We do this by calling `__riscv_vnclip_wx_i16m1` which has the prototype:
+>
+> ```c
+> vint16m1_t __riscv_vnclip_wx_i16m1(vint32m2_t src, int32_t shift, uint32_t opc, size_t vectorLength);
+> ```
+>
+> to first saturate or clip the `int32_t` value into `int16_t` range. The crucial part is the second argument it tells the instruction to `0` right shifts, the 3rd argument then becomes irrelevant.
+
+#### Storing the nascent `int16_t` vector
+
+into the corresponding chunk of the output array `y`
 
 - We call `__riscv_vse16_v_i16m1` to specify the address of the `y` chunk and the length of `vectorY`
+
+## The challenge
+
+Implement a _vectorized_ _C_ function _(`q15_axpy_rvv`)_ that uses the RISC-V Vector instructions (RVV) to compute the scalar formula [[2]](https://docs.google.com/document/d/1BLO9GU57161sGLYuBxm7MzcDJSVZIj5OYhqFli7t-Y0/edit?tab=t.0):
+
+```
+
+y[i] = sat_q15(a[i] + alpha \* b[i])
+
+```
+
+### Function prototype
+
+```c
+void q15_axpy_rvv(
+    const int16_t *a,
+    const int16_t *b,
+    int16_t *y,
+    int n,
+    int16_t alpha
+)
+```
+
+- `a` and `b` are input arrays, of `int16_t` elements.
+- `y` is the output array, of `int16_t` elements.
+- `n` is the length of `a`, `b` and `y`.
+- `alpha` is a singular (scalar) value.
+
+### Scalar vs vectorized definitions
+
+_Scalar_ means we apply a sequence operations to a **single** array element e.g.:
+
+- `const multiplyResult = alpha * b[i]`
+- `const sumResult = multiplyResult + a[i]`
+- `const clampedResult = sat_q15_scalar(result)`
+- `y[i] = clampedResult`
+
+A _vectorized_ solution however applies the **same** operation on **multiple** elements **simultaneously**.
+
+It does this by _packing_ multiple elements inside a _hardware vector register_ and applying the _same_ operation on the _entire_ vector e.g.:
+
+- `const multiplyVector = alpha * vectorB[i : i+VL]` where `VL` is `vectorLength` or the number of elements that can be _packed_ in a single hardware vector register.
+- `const sumVector = multiplyVector + vectorA[i : i+VL]`
+- `const clampedAndNarrowedVector = __riscv_vnclip_wx_i16m1(sumVector)`
+- `y[i : i+VL] = clampedAndNarrowedVector`
+
+### Formula notes
+
+```
+y[i] = sat_q15(a[i] + alpha * b[i])
+```
+
+- Interim element calculations will be of type `int32_t` (doesn't matter if _scalar_ or _vectorized_).
+- This is because `a[i] + alpha * b[i]` will in most cases exceed the `int16_t` range `[-32768, 32767]` and overflow to the wrong value.
+- `sat_q15` clamps the `int32_t` result back to `int16_t`.
+
+> _The vectorized solution should **not** implement `sat_q15` because the proper RVV instructions will do that internally. The reference scalar version is provided here purely for educational purposes:_
+
+```c
+int16_t sat_q15(int32_t arrayElement)
+{
+    if (arrayElement > 32767)
+        return 32767;
+    if (arrayElement < -32768)
+        return -32768;
+    return (int16_t)arrayElement;
+}
+```
 
 ## Speedup
 
