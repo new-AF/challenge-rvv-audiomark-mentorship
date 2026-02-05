@@ -3,6 +3,7 @@
 by Abdullah Fatota [[1]](https://github.com/new-AF/challenge-rvv-audiomark-mentorship)
 
 - [My Solution to the RISC-V AudioMark™ Mentorship Challenge](#my-solution-to-the-risc-v-audiomark-mentorship-challenge)
+  - [Link to my GitHub solution](#link-to-my-github-solution)
   - [My vectorized solution](#my-vectorized-solution)
     - [Correctness output](#correctness-output)
     - [Design decisions](#design-decisions)
@@ -30,6 +31,10 @@ by Abdullah Fatota [[1]](https://github.com/new-AF/challenge-rvv-audiomark-mento
     - [Building the latest official GCC compiler](#building-the-latest-official-gcc-compiler)
     - [Compiling and running my `solution.c`](#compiling-and-running-my-solutionc)
   - [References](#references)
+
+## Link to my GitHub solution
+
+[https://github.com/new-AF/challenge-rvv-audiomark-mentorship](https://github.com/new-AF/challenge-rvv-audiomark-mentorship)
 
 ## My vectorized solution
 
