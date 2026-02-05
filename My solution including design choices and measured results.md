@@ -16,7 +16,7 @@ by Abdullah Fatota [[1]](https://github.com/new-AF/challenge-rvv-audiomark-mento
   - [Narrowing down the output vector from `int32_t` to `int16_t`](#narrowing-down-the-output-vector-from-int32_t-to-int16_t)
   - [Storing the nascent `int16_t` vector](#storing-the-nascent-int16_t-vector)
 - [Measured results and speedup](#measured-results-and-speedup)
-  - [Attempting to install cycle-accurate simulators backstory](#attempting-to-install-cycle-accurate-simulators-backstory)
+  - [Attempting to install cycle-accurate simulators](#attempting-to-install-cycle-accurate-simulators)
   - [Scalar solution disassembly analysis](#scalar-solution-disassembly-analysis)
   - [Vectorized solution disassembly analysis](#vectorized-solution-disassembly-analysis)
   - [Concrete calculations](#concrete-calculations)
@@ -310,15 +310,17 @@ By storing `vectorY` into output array `y` we have completed the current batch, 
 
 # Measured results and speedup
 
-> The expected speedup is between **1.6x** for a 32-bit vector register, up to **25.6x** for a 512-bit vector register.
+> Under a purely theoretical model counting instructions emitted, the expected speedup is between **1.6x** for a 32-bit vector register, up to **25.6x** for a 512-bit vector register.
 >
-> The speedup formula is **`0.05 x Vector Register Width`**
+> This also assumes that RVV instruction cost is **O(1)** or independent of the register width, which might be true on real hardware.
 >
-> Because our elements are `int16_t`, the expected speedup is **`0.8 x VL`** or **`0.8 x vectorLength`**
+> Under such model the speedup formula is **`0.8 x vectorLength (VL)`**
+>
+> In that world every additional `int16_t` element fitted yields an absolute speedup of **0.8x**
 >
 > _(`vectorLength` is the number of `int16_t` elements that can be packed in a vector register)_
 
-## Attempting to install cycle-accurate simulators backstory
+## Attempting to install cycle-accurate simulators
 
 ![Correctness output screenshot of running the vectorized ELF binary on the QEMU risc-v 32bit emulator](./images/correctness-output.png)
 
@@ -455,18 +457,20 @@ Set by caller                         // a0 = &a[0]
 ```
 
 > So 1 element costs `15 / vectorLength` instructions in the vectorized solution, as opposed to `12` in the scalar solution.
+>
+> This assumes that RVV instructions cost is **O(1)** or independent regardless of the register width, which might be true on real hardware.
 
-The Speedup = `Scalar instructions per element / Vector instructions per element`
+The theoretical speedup = `Scalar instructions per element / Vector instructions per element`
 
-The Speedup = `12 / (15 / vectorLength)`
+Theoretical speedup = `12 / (15 / vectorLength)`
 
-The Speedup = `12 * vectorLength / 15`
+Theoretical speedup = `12 * vectorLength / 15`
 
-> The Speedup = `0.8 * vectorLength`
+> Theoretical speedup = `0.8 * vectorLength`
 >
 > Because `vectorLength` = `vectorWidthInBits / 16`
 >
-> The Speedup in terms of Vector Register Width = `0.05 * vectorWidthInBits`
+> Interpolating the theoretical speedup in terms of Vector Register Width = `0.05 * vectorWidthInBits`
 
 ## Concrete calculations
 
