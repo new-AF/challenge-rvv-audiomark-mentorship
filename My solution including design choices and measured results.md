@@ -16,7 +16,8 @@ by Abdullah Fatota [[1]](https://github.com/new-AF/challenge-rvv-audiomark-mento
   - [Narrowing down the output vector from `int32_t` to `int16_t`](#narrowing-down-the-output-vector-from-int32_t-to-int16_t)
   - [Storing the nascent `int16_t` vector](#storing-the-nascent-int16_t-vector)
 - [Measured results and speedup](#measured-results-and-speedup)
-  - [Attempting to install cycle-accurate simulators](#attempting-to-install-cycle-accurate-simulators)
+  - [Attempting to install cycle-accurate simulators backstory](#attempting-to-install-cycle-accurate-simulators-backstory)
+  - [Shift to disassembly analysis](#shift-to-disassembly-analysis)
   - [Scalar solution disassembly analysis](#scalar-solution-disassembly-analysis)
   - [Vectorized solution disassembly analysis](#vectorized-solution-disassembly-analysis)
   - [Concrete calculations](#concrete-calculations)
@@ -310,25 +311,32 @@ By storing `vectorY` into output array `y` we have completed the current batch, 
 
 # Measured results and speedup
 
-> Under a purely theoretical model counting instructions emitted, the expected speedup is between **1.6x** for a 32-bit vector register, up to **25.6x** for a 512-bit vector register.
+> Under the constraints discussed below, the expected speedup is between **1.6x** for a 32-bit vector register, **12.8x** for a 256-bit vector register, and up to **25.6x** for a 512-bit vector register.
 >
-> This also assumes that RVV instruction cost is **O(1)** or independent of the register width, which might be true on real hardware.
+> Constraints:
 >
-> Under such model the speedup formula is **`0.8 x vectorLength (VL)`**
+> 1. My analysis assumes a purely theoretical instruction-counting model, it does not account for real-hardware drains like instruction and memory latency, cache behavior or vector unit architecture.
+> 2. Crucially, each RVV instruction discussed has O(1) runtime complexity, or the work performed is independent of the register width, which might not be true on real hardware.
+> 3. Vector Register Width is a multiple of 16.
 >
-> In that world every additional `int16_t` element fitted yields an absolute speedup of **0.8x**
+> Speedup formula:
 >
-> _(`vectorLength` is the number of `int16_t` elements that can be packed in a vector register)_
+> - Under such constraints the speedup formula is **`0.8 x vectorLength (VL)`**
+> - Or equivalently: **`0.05 x VectorRegisterWidth`**
+>
+> Under such model every additional input `int16_t` element packed in a vector register yields an absolute speedup of **0.8x**
 
-## Attempting to install cycle-accurate simulators
+## Attempting to install cycle-accurate simulators backstory
 
 ![Correctness output screenshot of running the vectorized ELF binary on the QEMU risc-v 32bit emulator](./images/correctness-output.png)
 
-I ran my compiled _ELF_ solution on `qemu-riscv32` and even though the cycle counter shows the RVV solution being slower than the scalar option ( ~657k instructions vs ~227k), this is because `qemu` is not a cycle-accurate emulator and does not emulate the RVV hardware pipeline. It instead transforms the RVV instructions into individual scalar instructions while being functionally correct with the end results and RVV spec. [[3]](https://research.samsung.com/blog/Bringing-RVV-to-Life-Overcoming-Hardware-Gaps-in-RISC-V-Development)
+I ran my compiled _ELF_ solution on `qemu-riscv32` and even though the cycle counter shows the RVV solution being slower than the scalar option ( ~657k instructions vs ~227k), this is because `qemu` is not a cycle-accurate emulator and does not emulate the RVV hardware pipeline. It instead transforms the RVV instructions into individual scalar instructions while being functionally correct with the end results and RVV specification. [[3]](https://research.samsung.com/blog/Bringing-RVV-to-Life-Overcoming-Hardware-Gaps-in-RISC-V-Development)
 
 I tried to compile `gem5` twice hoping it might have a better RVV performance but my hardware-vulnerable [[4]](https://blog.talli.ai/intel-cpu-security-flaw-settlement/) and slow Intel Gen11 i3 laptop became unresponsive.
 
-So we have to disassemble the binary outputs of both the scalar and vectorized versions to calculate the instruction count _per_ element.
+## Shift to disassembly analysis
+
+In light of the above limitations and lack of real RISC-V hardware I had to disassemble and analyze the binary outputs of both the scalar and vectorized versions and calculate the instruction count _per_ element.
 
 ## Scalar solution disassembly analysis
 
@@ -714,12 +722,6 @@ cd challenge-rvv-audiomark-mentorship
 riscv32-unknown-elf-gcc -O2 -march=rv32gcv -mabi=ilp32d -o solution.elf solution.c
 
 # run it
-qemu-riscv32 ./solution.elf
-```
-
-Now run the QEMU RISC-V emulator:
-
-```bash
 qemu-riscv32 ./solution.elf
 ```
 
