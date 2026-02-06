@@ -1,8 +1,8 @@
-# My Solution to the RISC-V AudioMark™ Mentorship Challenge
+# My Solution, Design Choices and Measured Results to the RISC-V AudioMark Mentorship Challenge
 
 by Abdullah Fatota [[1]](https://github.com/new-AF/challenge-rvv-audiomark-mentorship)
 
-- [My Solution to the RISC-V AudioMark™ Mentorship Challenge](#my-solution-to-the-risc-v-audiomark-mentorship-challenge)
+- [My Solution, Design Choices and Measured Results to the RISC-V AudioMark Mentorship Challenge](#my-solution-design-choices-and-measured-results-to-the-risc-v-audiomark-mentorship-challenge)
 - [Link to my GitHub solution](#link-to-my-github-solution)
 - [My vectorized solution](#my-vectorized-solution)
   - [Correctness output](#correctness-output)
